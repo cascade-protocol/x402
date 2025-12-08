@@ -10,7 +10,6 @@ Guide for developing and contributing to the x402 TypeScript SDK.
 - [Adding Features](#adding-features)
 - [Testing](#testing)
 - [Code Quality](#code-quality)
-- [Paywall Changes](#paywall-changes)
 
 ## Repository Structure
 
@@ -150,7 +149,9 @@ cd packages/http/your-framework
 
 ### Adding a New Chain Mechanism
 
-To add support for a new blockchain:
+See [New Chains](../CONTRIBUTING.md#new-chains) in the root contributing guide for protocol-level requirements and interface definitions.
+
+To add support for a new blockchain in TypeScript:
 
 1. Create a new package in `packages/mechanisms/`:
 
@@ -262,23 +263,7 @@ pnpm format:check
 
 ## Paywall Changes
 
-The paywall package (`packages/http/paywall/`) contains browser-rendered UI components. Changes require rebuilding generated files.
-
-After modifying paywall source files:
-
-```bash
-pnpm --filter @x402/paywall build:paywall
-```
-
-This generates files in:
-- `typescript/packages/http/paywall/src/evm/gen/template.ts`
-- `typescript/packages/http/paywall/src/svm/gen/template.ts`
-- `go/http/evm_paywall_template.go`
-- `go/http/svm_paywall_template.go`
-- `python/x402/src/x402/evm_paywall_template.py`
-- `python/x402/src/x402/svm_paywall_template.py`
-
-**Commit the generated files with your PR.**
+The paywall package (`packages/http/paywall/`) contains browser-rendered UI components. See [Paywall Changes](../CONTRIBUTING.md#paywall-changes) in the root contributing guide for build instructions and generated file locations.
 
 ## Examples
 

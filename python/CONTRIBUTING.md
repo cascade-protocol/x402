@@ -150,9 +150,11 @@ dependencies = [
 
 ### Adding a New Chain Mechanism
 
-Chain mechanisms implement the signing and verification logic for specific blockchains.
+See [New Chains](../CONTRIBUTING.md#new-chains) in the root contributing guide for protocol-level requirements.
 
-1. Create the mechanism file:
+To add support for a new blockchain in Python:
+
+1. Create the mechanism file in `src/x402/your_chain.py`
 
 ```python
 # src/x402/your_chain.py
@@ -169,6 +171,7 @@ def sign_payload(
 ```
 
 2. Integrate with the client in `src/x402/clients/base.py`
+3. Reference `src/x402/exact.py` for the existing EVM implementation pattern
 
 ## Testing
 

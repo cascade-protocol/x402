@@ -86,34 +86,6 @@ Use the appropriate template:
 3. For transports: `specs/transports/<name>.md`
 4. Reference the core spec for shared types
 
-## Spec Review Process
-
-Specs go through a multi-phase review before acceptance.
-
-### Phase 1: Technical Review
-
-- Is the spec complete and unambiguous?
-- Does it reference core types correctly?
-- Are edge cases addressed?
-
-### Phase 2: Security Review
-
-Schemes that handle fund transfers require security review:
-
-- Replay attack prevention
-- Authorization validation
-- Settlement safety
-
-CDP security team reviews all scheme specifications.
-
-### Phase 3: Legal Review
-
-New schemes may require legal review to ensure compliance with regulations.
-
-### Timeline
-
-Expect spec reviews to take 2-4 weeks depending on complexity and security implications.
-
 ## Templates
 
 ### Scheme Template
@@ -143,9 +115,9 @@ Use `scheme_impl_template.md` for chain-specific implementations:
 
 Summarize the purpose and behavior of your scheme here. Include example use cases.
 
-## `X-Payment` header payload
+## Payment header payload
 
-Document how to construct the `X-Payment` header payload for your scheme.
+Document how to construct the payment header payload for your scheme.
 
 ## Verification
 

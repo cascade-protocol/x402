@@ -1,6 +1,6 @@
 # Contributing
 
-x402 welcomes contributions of schemes, middleware, new chain support, and more. CDP aims to make x402 as secure and trusted as possible. Merging contributions is at the discretion of the CDP Engineering team, based on the risk of the contribution and the quality of implementation.
+x402 welcomes contributions of schemes, middleware, new chain support, and more. We aim to make x402 as secure and trusted as possible. Merging contributions is at the discretion of the x402 Foundation team, based on the risk of the contribution and the quality of implementation.
 
 ## Contents
 
@@ -92,20 +92,22 @@ git config --global commit.gpgsign true
 The paywall is a browser UI component that exists across TypeScript, Go, and Python. If you modify paywall source files in TypeScript:
 
 ```bash
-pnpm build:paywall
+cd typescript && pnpm --filter @x402/paywall build:paywall
 ```
 
 This generates template files in:
 - `typescript/packages/http/paywall/src/evm/gen/template.ts`
 - `typescript/packages/http/paywall/src/svm/gen/template.ts`
 - `go/http/evm_paywall_template.go`
+- `go/http/svm_paywall_template.go`
 - `python/x402/src/x402/evm_paywall_template.py`
+- `python/x402/src/x402/svm_paywall_template.py`
 
 Commit the generated files with your PR.
 
 ## New Schemes
 
-Schemes dictate how funds are moved from client to server. New schemes require thorough review by CDP legal and security teams.
+Schemes dictate how funds are moved from client to server. New schemes require thorough review by the x402 Foundation team.
 
 Recommended approach:
 
@@ -119,7 +121,27 @@ See [specs/CONTRIBUTING.md](specs/CONTRIBUTING.md) for spec writing guidelines.
 
 x402 aims to be chain-agnostic. New chain implementations are welcome.
 
-Because different chains have different best practices, a scheme may have a different mechanism on a new chain than it does on EVM. If the scheme mechanism varies from the reference implementation, CDP will re-audit the scheme for that chain before accepting.
+Because different chains have different best practices, a scheme may have a different mechanism on a new chain than it does on EVM. If the scheme mechanism varies from the reference implementation, the x402 Foundation will re-audit the scheme for that chain before accepting.
+
+### Required Interfaces
+
+Each language SDK defines interfaces that chain mechanisms must implement:
+
+**TypeScript** (`@x402/core`):
+- `SchemeNetworkClient` - Signs payment payloads
+- `SchemeNetworkServer` - Validates payment requirements  
+- `SchemeNetworkFacilitator` - Verifies and settles payments
+
+**Go** (`github.com/coinbase/x402/go`):
+- `ClientScheme` - Signs payment payloads
+- `ServerScheme` - Validates payment requirements
+- `FacilitatorScheme` - Verifies and settles payments
+
+**Python** (`x402`):
+- Implement signing in `src/x402/your_chain.py`
+- Integrate with the base client in `src/x402/clients/base.py`
+
+See the language-specific guides for detailed implementation patterns.
 
 ## Middleware and HTTP Integrations
 
@@ -128,6 +150,19 @@ HTTP middleware packages should:
 - Follow best practices for the target framework
 - Include tests
 - Follow x402 client/server patterns from existing middleware
+
+## Examples
+
+Examples for each SDK live in `examples/`:
+
+```
+examples/
+├── typescript/    # TypeScript examples
+├── python/        # Python examples
+└── go/            # Go examples
+```
+
+When adding a new example, follow the patterns in the language-specific guide.
 
 ## Getting Help
 

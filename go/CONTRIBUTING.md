@@ -158,9 +158,11 @@ func Middleware(httpServer *x402http.HTTPResourceServer) YourFrameworkMiddleware
 
 ### Adding a New Chain Mechanism
 
-To add support for a new blockchain:
+See [New Chains](../CONTRIBUTING.md#new-chains) in the root contributing guide for protocol-level requirements and interface definitions.
 
-1. Create the mechanism directory:
+To add support for a new blockchain in Go:
+
+1. Create the mechanism directory structure:
 
 ```
 mechanisms/your_chain/exact/
@@ -175,61 +177,13 @@ mechanisms/your_chain/exact/
     └── register.go
 ```
 
-2. Implement the interfaces from the root package:
+2. Implement `ClientScheme`, `ServerScheme`, and `FacilitatorScheme` interfaces from the root package.
 
-```go
-// client/scheme.go
-package client
+3. Add registration helpers in each package.
 
-import x402 "github.com/coinbase/x402/go"
+4. Add signer helpers in `signers/your_chain/`.
 
-type ExactYourChainScheme struct {
-    signer YourChainSigner
-}
-
-func (s *ExactYourChainScheme) CreatePayment(
-    ctx context.Context,
-    requirements x402.PaymentRequirements,
-) (map[string]interface{}, error) {
-    // Implement signing logic
-}
-```
-
-3. Implement `ServerScheme` and `FacilitatorScheme` similarly in their respective packages.
-
-4. Add registration helpers:
-
-```go
-// client/register.go
-package client
-
-import x402 "github.com/coinbase/x402/go"
-
-func RegisterExactYourChainScheme(
-    client *x402.X402Client,
-    signer YourChainSigner,
-    networks ...string,
-) {
-    if len(networks) == 0 {
-        networks = []string{"yourchain:*"}
-    }
-    scheme := NewExactYourChainScheme(signer)
-    for _, network := range networks {
-        client.Register(network, scheme)
-    }
-}
-```
-
-5. Add signer helpers in `signers/your_chain/`:
-
-```go
-// signers/your_chain/signer.go
-package yourchain
-
-func NewSigner(privateKey string) (YourChainSigner, error) {
-    // Create signer from private key
-}
-```
+5. Reference `mechanisms/evm/` or `mechanisms/svm/` for the complete pattern.
 
 ### Adding Extensions
 
@@ -334,7 +288,7 @@ Examples live in `examples/go/`. When adding a new example:
 3. Add a `README.md` with setup and run instructions
 4. Add a `go.mod` that references the local SDK for development
 
-Example `go.mod`:
+When adding a Go example, include a `go.mod` that references the local SDK:
 
 ```go
 module github.com/coinbase/x402/examples/go/your-example
