@@ -159,9 +159,9 @@ mkdir -p packages/mechanisms/your-chain
 ```
 
 2. Implement the required interfaces from `@x402/core`:
-   - `ClientScheme` - Signs payment payloads
-   - `ServerScheme` - Validates payment requirements
-   - `FacilitatorScheme` - Verifies and settles payments
+   - `SchemeNetworkClient` - Signs payment payloads
+   - `SchemeNetworkServer` - Validates payment requirements
+   - `SchemeNetworkFacilitator` - Verifies and settles payments
 
 3. Export registration helpers:
 
@@ -267,15 +267,16 @@ The paywall package (`packages/http/paywall/`) contains browser-rendered UI comp
 After modifying paywall source files:
 
 ```bash
-# From repository root
-pnpm build:paywall
+pnpm --filter @x402/paywall build:paywall
 ```
 
 This generates files in:
 - `typescript/packages/http/paywall/src/evm/gen/template.ts`
 - `typescript/packages/http/paywall/src/svm/gen/template.ts`
 - `go/http/evm_paywall_template.go`
+- `go/http/svm_paywall_template.go`
 - `python/x402/src/x402/evm_paywall_template.py`
+- `python/x402/src/x402/svm_paywall_template.py`
 
 **Commit the generated files with your PR.**
 
