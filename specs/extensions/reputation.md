@@ -456,8 +456,8 @@ Two submission paths are available:
 | `value`              | number | ERC-8004 | Yes      | Feedback score (0-100)                                                                                                                     |
 | `valueDecimals`      | number | ERC-8004 | Yes      | Decimal places (0 = integer)                                                                                                               |
 | `proofOfInteraction` | object | x402     | Yes      | Proof-of-service object (see below)                                                                                                        |
-| `tag1`               | string | Both     | No       | Primary structured tag (what `value` measures, e.g. `starred`)                                                                             |
-| `tag2`               | string | Both     | No       | Secondary structured tag (feedback source, e.g. `x402`)                                                                                    |
+| `tag1`               | string | Both     | No       | What `value` measures - SHOULD be a standard ERC-8004 tag (`starred` recommended). See [Tag Conventions](#tag-conventions)                   |
+| `tag2`               | string | Both     | Yes      | Feedback source - MUST be `x402`. See [Tag Conventions](#tag-conventions)                                                                   |
 | `reasoning`          | string | Both     | No       | Free-form text explaining the rating                                                                                                       |
 
 **Numeric fields:** All numeric fields in feedbackURI (`value`, `valueDecimals`) MUST be JSON integers. JCS (RFC 8785) has floating-point edge cases; ERC-8004's `value` (`int128`) and `valueDecimals` (`uint8`) are always integers.
@@ -740,9 +740,16 @@ ERC-8004 uses a **two-tag model** ([spec](https://github.com/erc-8004/erc-8004-c
 
 ### x402 Feedback Tags
 
-| tag1      | tag2   | value | Meaning                                |
-| --------- | ------ | ----- | -------------------------------------- |
-| `starred` | `x402` | 0-100 | Quality rating for an x402 interaction |
+`tag2` MUST be `x402` so all x402-generated feedback is filterable by source.
+
+`tag1` SHOULD be one of the ERC-8004 standard tags:
+- `starred` (RECOMMENDED) - for clients that evaluate response quality (human- or LLM-judged)
+- `reachable` - for simpler clients that only attest the interaction occurred without rating content
+
+| tag1        | tag2   | value | Meaning                                               |
+| ----------- | ------ | ----- | ----------------------------------------------------- |
+| `starred`   | `x402` | 0-100 | Quality rating for an x402 interaction                |
+| `reachable` | `x402` | 0 / 1 | Attests the interaction occurred, no quality judgment |
 
 Service delivery is proven cryptographically via `proofOfInteraction` - the tag measures quality, not delivery. For failure cases (charged but didn't deliver), use `value: 0` with details in `reasoning`.
 
