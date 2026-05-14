@@ -8,27 +8,23 @@ import {
   FacilitatorClient,
   FacilitatorResponseError,
   getFacilitatorResponseError,
+  SETTLEMENT_OVERRIDES_HEADER,
+  SettlementOverrides,
+  checkIfBazaarNeeded,
 } from "@x402/core/server";
 import { SchemeNetworkServer, Network } from "@x402/core/types";
 import { Context, MiddlewareHandler } from "hono";
 import { HonoAdapter } from "./adapter";
 
 /**
- * Check if any routes in the configuration declare bazaar extensions
+ * Set settlement overrides on the response for partial settlement.
+ * The middleware will extract these before settlement and strip the header from the client response.
  *
- * @param routes - Route configuration
- * @returns True if any route has extensions.bazaar defined
+ * @param c - Hono context
+ * @param overrides - Settlement overrides (e.g., { amount: "500" } for partial settlement)
  */
-function checkIfBazaarNeeded(routes: RoutesConfig): boolean {
-  // Handle single route config
-  if ("accepts" in routes) {
-    return !!(routes.extensions && "bazaar" in routes.extensions);
-  }
-
-  // Handle multiple routes
-  return Object.values(routes).some(routeConfig => {
-    return !!(routeConfig.extensions && "bazaar" in routeConfig.extensions);
-  });
+export function setSettlementOverrides(c: Context, overrides: SettlementOverrides): void {
+  c.header(SETTLEMENT_OVERRIDES_HEADER, JSON.stringify(overrides));
 }
 
 /**
@@ -196,21 +192,39 @@ export function paymentMiddlewareFromHTTPServer(
 
       case "payment-verified":
         // Payment is valid, need to wrap response for settlement
-        const { paymentPayload, paymentRequirements, declaredExtensions } = result;
+        const { cancellationDispatcher, paymentPayload, paymentRequirements, declaredExtensions } =
+          result;
 
         // Proceed to the next middleware or route handler
-        await next();
+        try {
+          await next();
+        } catch (error) {
+          await cancellationDispatcher.cancel({
+            reason: "handler_threw",
+            error,
+          });
+          throw error;
+        }
 
         // Get the current response
         let res = c.res;
 
         // If the response from the protected route is >= 400, do not settle payment
         if (res.status >= 400) {
+          await cancellationDispatcher.cancel({
+            reason: "handler_failed",
+            responseStatus: res.status,
+          });
           return;
         }
 
         // Get response body for extensions
         const responseBody = Buffer.from(await res.clone().arrayBuffer());
+
+        const responseHeaders: Record<string, string> = {};
+        res.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
 
         // Clear the response so we can modify headers
         c.res = undefined;
@@ -220,7 +234,7 @@ export function paymentMiddlewareFromHTTPServer(
             paymentPayload,
             paymentRequirements,
             declaredExtensions,
-            { request: context, responseBody },
+            { request: context, responseBody, responseHeaders },
           );
 
           if (!settleResult.success) {
@@ -356,9 +370,9 @@ export type {
   SchemeNetworkServer,
 } from "@x402/core/types";
 
-export type { PaywallProvider, PaywallConfig } from "@x402/core/server";
+export type { PaywallProvider, PaywallConfig, SettlementOverrides } from "@x402/core/server";
 
-export { RouteConfigurationError } from "@x402/core/server";
+export { RouteConfigurationError, SETTLEMENT_OVERRIDES_HEADER } from "@x402/core/server";
 
 export type { RouteValidationError } from "@x402/core/server";
 

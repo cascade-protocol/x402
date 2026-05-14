@@ -8,27 +8,23 @@ import {
   FacilitatorClient,
   FacilitatorResponseError,
   getFacilitatorResponseError,
+  SETTLEMENT_OVERRIDES_HEADER,
+  SettlementOverrides,
+  checkIfBazaarNeeded,
 } from "@x402/core/server";
 import { SchemeNetworkServer, Network } from "@x402/core/types";
 import { NextFunction, Request, Response } from "express";
 import { ExpressAdapter } from "./adapter";
 
 /**
- * Check if any routes in the configuration declare bazaar extensions
+ * Set settlement overrides on the response for partial settlement.
+ * The middleware will extract these before settlement and strip the header from the client response.
  *
- * @param routes - Route configuration
- * @returns True if any route has extensions.bazaar defined
+ * @param res - Express response object
+ * @param overrides - Settlement overrides (e.g., { amount: "500" } for partial settlement)
  */
-function checkIfBazaarNeeded(routes: RoutesConfig): boolean {
-  // Handle single route config
-  if ("accepts" in routes) {
-    return !!(routes.extensions && "bazaar" in routes.extensions);
-  }
-
-  // Handle multiple routes
-  return Object.values(routes).some(routeConfig => {
-    return !!(routeConfig.extensions && "bazaar" in routeConfig.extensions);
-  });
+export function setSettlementOverrides(res: Response, overrides: SettlementOverrides): void {
+  res.setHeader(SETTLEMENT_OVERRIDES_HEADER, JSON.stringify(overrides));
 }
 
 /**
@@ -199,7 +195,8 @@ export function paymentMiddlewareFromHTTPServer(
 
       case "payment-verified":
         // Payment is valid, need to wrap response for settlement
-        const { paymentPayload, paymentRequirements, declaredExtensions } = result;
+        const { cancellationDispatcher, paymentPayload, paymentRequirements, declaredExtensions } =
+          result;
 
         // Intercept and buffer all core methods that can commit response to client
         const originalWriteHead = res.writeHead.bind(res);
@@ -214,6 +211,14 @@ export function paymentMiddlewareFromHTTPServer(
           | ["flushHeaders", []];
         let bufferedCalls: BufferedCall[] = [];
         let settled = false;
+
+        const restoreResponseMethods = () => {
+          settled = true;
+          res.writeHead = originalWriteHead;
+          res.write = originalWrite;
+          res.end = originalEnd;
+          res.flushHeaders = originalFlushHeaders;
+        };
 
         // Create a promise that resolves when the handler finishes and calls res.end()
         let endCalled: () => void;
@@ -256,18 +261,28 @@ export function paymentMiddlewareFromHTTPServer(
         };
 
         // Proceed to the next middleware or route handler
-        next();
+        try {
+          await Promise.resolve(next());
+        } catch (error) {
+          await cancellationDispatcher.cancel({
+            reason: "handler_threw",
+            error,
+          });
+          bufferedCalls = [];
+          restoreResponseMethods();
+          return next(error);
+        }
 
         // Wait for the handler to actually call res.end() before checking status
         await endPromise;
 
         // If the response from the protected route is >= 400, do not settle payment
         if (res.statusCode >= 400) {
-          settled = true;
-          res.writeHead = originalWriteHead;
-          res.write = originalWrite;
-          res.end = originalEnd;
-          res.flushHeaders = originalFlushHeaders;
+          await cancellationDispatcher.cancel({
+            reason: "handler_failed",
+            responseStatus: res.statusCode,
+          });
+          restoreResponseMethods();
           // Replay all buffered calls in order
           for (const [method, args] of bufferedCalls) {
             if (method === "writeHead")
@@ -289,11 +304,18 @@ export function paymentMiddlewareFromHTTPServer(
             ),
           );
 
+          const responseHeaders: Record<string, string> = {};
+          for (const [key, value] of Object.entries(res.getHeaders())) {
+            if (value != null) {
+              responseHeaders[key] = String(value);
+            }
+          }
+
           const settleResult = await httpServer.processSettlement(
             paymentPayload,
             paymentRequirements,
             declaredExtensions,
-            { request: context, responseBody },
+            { request: context, responseBody, responseHeaders },
           );
 
           // If settlement fails, return an error and do not send the buffered response
@@ -327,11 +349,7 @@ export function paymentMiddlewareFromHTTPServer(
           res.status(402).json({});
           return;
         } finally {
-          settled = true;
-          res.writeHead = originalWriteHead;
-          res.write = originalWrite;
-          res.end = originalEnd;
-          res.flushHeaders = originalFlushHeaders;
+          restoreResponseMethods();
 
           // Replay all buffered calls in order
           for (const [method, args] of bufferedCalls) {
@@ -448,9 +466,9 @@ export type {
   SchemeNetworkServer,
 } from "@x402/core/types";
 
-export type { PaywallProvider, PaywallConfig } from "@x402/core/server";
+export type { PaywallProvider, PaywallConfig, SettlementOverrides } from "@x402/core/server";
 
-export { RouteConfigurationError } from "@x402/core/server";
+export { RouteConfigurationError, SETTLEMENT_OVERRIDES_HEADER } from "@x402/core/server";
 
 export type { RouteValidationError } from "@x402/core/server";
 

@@ -8,6 +8,7 @@ import {
   FacilitatorResponseError,
 } from "../types/facilitator";
 import { z } from "../schemas";
+import { safeBase64Decode } from "../utils";
 
 const DEFAULT_FACILITATOR_URL = "https://x402.org/facilitator";
 
@@ -17,6 +18,7 @@ export interface FacilitatorConfig {
     verify: Record<string, string>;
     settle: Record<string, string>;
     supported: Record<string, string>;
+    bazaar?: Record<string, string>;
   }>;
 }
 
@@ -64,20 +66,56 @@ const GET_SUPPORTED_RETRY_DELAY_MS = 1000;
 
 const verifyResponseSchema: z.ZodType<VerifyResponse, z.ZodTypeDef, unknown> = z.object({
   isValid: z.boolean(),
-  invalidReason: z.string().optional(),
-  invalidMessage: z.string().optional(),
-  payer: z.string().optional(),
-  extensions: z.record(z.string(), z.unknown()).optional(),
+  invalidReason: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
+  invalidMessage: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
+  payer: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
+  extensions: z
+    .record(z.string(), z.unknown())
+    .nullish()
+    .transform(v => v ?? undefined),
+  extra: z
+    .record(z.string(), z.unknown())
+    .nullish()
+    .transform(v => v ?? undefined),
 });
 
 const settleResponseSchema: z.ZodType<SettleResponse, z.ZodTypeDef, unknown> = z.object({
   success: z.boolean(),
-  errorReason: z.string().optional(),
-  errorMessage: z.string().optional(),
-  payer: z.string().optional(),
+  errorReason: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
+  errorMessage: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
+  payer: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
   transaction: z.string(),
   network: z.custom<SettleResponse["network"]>(value => typeof value === "string"),
-  extensions: z.record(z.string(), z.unknown()).optional(),
+  amount: z
+    .string()
+    .nullish()
+    .transform(v => v ?? undefined),
+  extensions: z
+    .record(z.string(), z.unknown())
+    .nullish()
+    .transform(v => v ?? undefined),
+  extra: z
+    .record(z.string(), z.unknown())
+    .nullish()
+    .transform(v => v ?? undefined),
 });
 
 const supportedKindSchema: z.ZodType<SupportedResponse["kinds"][number], z.ZodTypeDef, unknown> =
@@ -87,7 +125,10 @@ const supportedKindSchema: z.ZodType<SupportedResponse["kinds"][number], z.ZodTy
     network: z.custom<SupportedResponse["kinds"][number]["network"]>(
       value => typeof value === "string",
     ),
-    extra: z.record(z.string(), z.unknown()).optional(),
+    extra: z
+      .record(z.string(), z.unknown())
+      .nullish()
+      .transform(v => v ?? undefined),
   });
 
 const supportedResponseSchema: z.ZodType<SupportedResponse, z.ZodTypeDef, unknown> = z.object({
@@ -114,6 +155,40 @@ function responseExcerpt(text: string, limit: number = 200): string {
   }
 
   return `${compact.slice(0, limit - 3)}...`;
+}
+
+const EXTENSION_RESPONSE_LOG_FIELD_ALLOWLIST = ["status", "rejectedReason", "reason", "code"];
+
+/**
+ * Reads the `EXTENSION-RESPONSES` header from a facilitator HTTP response and logs
+ * allowlisted fields. Silently ignores malformed headers.
+ *
+ * @param response - The HTTP response from the facilitator
+ */
+function logExtensionResponsesHeader(response: Response): void {
+  const header = response.headers.get("EXTENSION-RESPONSES");
+  if (!header) return;
+  try {
+    const decoded = JSON.parse(safeBase64Decode(header));
+    if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return;
+    const sanitized: Record<string, Record<string, unknown>> = {};
+    for (const [extensionKey, payload] of Object.entries(decoded as Record<string, unknown>)) {
+      const source =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+      const filtered: Record<string, unknown> = {};
+      for (const key of EXTENSION_RESPONSE_LOG_FIELD_ALLOWLIST) {
+        if (source[key] !== undefined) {
+          filtered[key] = source[key];
+        }
+      }
+      sanitized[extensionKey] = filtered;
+    }
+    console.log(`[x402] extension responses: ${JSON.stringify(sanitized)}`);
+  } catch {
+    // Ignore malformed header
+  }
 }
 
 /**
@@ -164,7 +239,9 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
    * @param config - Configuration options for the facilitator client
    */
   constructor(config?: FacilitatorConfig) {
-    this.url = config?.url || DEFAULT_FACILITATOR_URL;
+    // Normalize URL: strip trailing slashes to prevent redirect loops (e.g. 308)
+    // when constructing endpoint paths like `${url}/supported`
+    this.url = (config?.url || DEFAULT_FACILITATOR_URL).replace(/\/+$/, "");
     this._createAuthHeaders = config?.createAuthHeaders;
   }
 
@@ -191,6 +268,7 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
     const response = await fetch(`${this.url}/verify`, {
       method: "POST",
       headers,
+      redirect: "follow",
       body: JSON.stringify({
         x402Version: paymentPayload.x402Version,
         paymentPayload: this.toJsonSafe(paymentPayload),
@@ -216,7 +294,9 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
       );
     }
 
-    return parseSuccessResponse(response, verifyResponseSchema, "verify");
+    const verifyResult = await parseSuccessResponse(response, verifyResponseSchema, "verify");
+    logExtensionResponsesHeader(response);
+    return verifyResult;
   }
 
   /**
@@ -242,6 +322,7 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
     const response = await fetch(`${this.url}/settle`, {
       method: "POST",
       headers,
+      redirect: "follow",
       body: JSON.stringify({
         x402Version: paymentPayload.x402Version,
         paymentPayload: this.toJsonSafe(paymentPayload),
@@ -267,7 +348,9 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
       );
     }
 
-    return parseSuccessResponse(response, settleResponseSchema, "settle");
+    const settleResult = await parseSuccessResponse(response, settleResponseSchema, "settle");
+    logExtensionResponsesHeader(response);
+    return settleResult;
   }
 
   /**
@@ -291,6 +374,7 @@ export class HTTPFacilitatorClient implements FacilitatorClient {
       const response = await fetch(`${this.url}/supported`, {
         method: "GET",
         headers,
+        redirect: "follow",
       });
 
       if (response.ok) {

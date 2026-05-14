@@ -5,6 +5,7 @@ Provides payment-gated route protection for FastAPI applications.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,7 @@ except ImportError as e:
         "FastAPI middleware requires fastapi and starlette. Install with: uv add x402[fastapi]"
     ) from e
 
+from ..constants import SETTLEMENT_OVERRIDES_HEADER
 from ..facilitator_client_base import FacilitatorResponseError
 from ..types import (
     HTTPAdapter,
@@ -257,8 +259,9 @@ def payment_middleware(
     if paywall_provider:
         http_server.register_paywall_provider(paywall_provider)
 
-    # Lazy initialization state
+    # Lazy initialization state with async lock for concurrency safety
     init_done = False
+    init_lock = asyncio.Lock()
 
     async def middleware(
         request: Request,
@@ -281,13 +284,15 @@ def payment_middleware(
         if not http_server.requires_payment(context):
             return await call_next(request)
 
-        # Initialize on first protected request
+        # Initialize on first protected request (double-checked locking)
         if sync_facilitator_on_start and not init_done:
-            try:
-                http_server.initialize()
-            except FacilitatorResponseError as error:
-                return _facilitator_error_response(error)
-            init_done = True
+            async with init_lock:
+                if not init_done:
+                    try:
+                        http_server.initialize()
+                    except FacilitatorResponseError as error:
+                        return _facilitator_error_response(error)
+                    init_done = True
 
         # Process payment request
         try:
@@ -337,12 +342,22 @@ def payment_middleware(
             async for chunk in response.body_iterator:
                 body += chunk
 
+            # Extract and strip settlement overrides from the upstream response
+            overrides = http_server._extract_settlement_overrides(
+                dict(response.headers),
+            )
+            if overrides is not None:
+                for k in list(response.headers.keys()):
+                    if k.lower() == SETTLEMENT_OVERRIDES_HEADER.lower():
+                        del response.headers[k]
+
             # Process settlement (await async method)
             try:
                 settle_result = await http_server.process_settlement(
                     result.payment_payload,
                     result.payment_requirements,
                     context=context,
+                    settlement_overrides=overrides,
                 )
 
                 if not settle_result.success:
@@ -384,6 +399,21 @@ def payment_middleware(
         return await call_next(request)
 
     return middleware
+
+
+def set_settlement_overrides(response: Response, overrides: dict[str, Any]) -> None:
+    """Set settlement overrides on a FastAPI/Starlette response for partial settlement.
+
+    The middleware extracts these before settlement and strips the header
+    from the client response.
+
+    Args:
+        response: FastAPI ``Response`` object.
+        overrides: Settlement overrides, e.g. ``{"amount": "500"}``.
+    """
+    import json
+
+    response.headers[SETTLEMENT_OVERRIDES_HEADER] = json.dumps(overrides)
 
 
 def payment_middleware_from_config(
